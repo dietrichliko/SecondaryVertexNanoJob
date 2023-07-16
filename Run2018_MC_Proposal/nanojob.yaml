@@ -1,0 +1,23 @@
+---
+cmssw: CMSSW_10_2_22
+
+steps:
+  - name: MiniAOD
+    config: Proposal_AOD_To_MiniAOD.py
+  - name: NanoAOD
+    config: Proposal_MiniAOD_To_NanoAOD.py
+
+datasets:
+  stop4b_1000_975_0: /scratch-cbe/users/dietrich.liko/antrag/stop4b_1000_975_0
+  stop4b_1000_980_2: /scratch-cbe/users/dietrich.liko/antrag/stop4b_1000_980_2
+  stop4b_1000_985_20: /scratch-cbe/users/dietrich.liko/antrag/stop4b_1000_985_20
+  stop4b_1000_988_200: /scratch-cbe/users/dietrich.liko/antrag/stop4b_1000_988_200
+  stop4b_1400_1375_0: /scratch-cbe/users/dietrich.liko/antrag/stop4b_1400_1375_0
+  stop4b_1400_1380_2: /scratch-cbe/users/dietrich.liko/antrag/stop4b_1400_1380_2
+  stop4b_1400_1385_20: /scratch-cbe/users/dietrich.liko/antrag/stop4b_1400_1385_20
+  stop4b_1400_1388_200: /scratch-cbe/users/dietrich.liko/antrag/stop4b_1400_1388_200
+  stop4b_600_575_0: /scratch-cbe/users/dietrich.liko/antrag/stop4b_600_575_0
+  stop4b_600_580_2: /scratch-cbe/users/dietrich.liko/antrag/stop4b_600_580_2
+  stop4b_600_588_200: /scratch-cbe/users/dietrich.liko/antrag/stop4b_600_588_200
+  zinv_1: /scratch-cbe/users/dietrich.liko/antrag/zinv_1
+  zinv_2: /scratch-cbe/users/dietrich.liko/antrag/zinv_2

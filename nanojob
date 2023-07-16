@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+
+import logging
+import pathlib
+from typing import List, Dict, Union
+import os
+import re
+import subprocess
+
+import click
+import yaml
+import jinja2
+
+SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+NANOJOB_DIR = pathlib.Path("/scratch-cbe/users/", os.getlogin(), "nanojob")
+VOMS_PROXY_PATH = pathlib.Path("~/.proxy").expanduser()
+DATASET_TYPES = [
+    "/AOD",
+    "/AODSIM",
+    "/MINIAOD",
+    "/MINIAODSIM",
+]
+
+# click does not like python 3.6
+if "LC_ALL" not in os.environ:
+    os.environ["LC_ALL"] = "en_US.utf-8"
+    os.environ["LANG"] = "en_US.utf-8"
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)-10s - %(message)s",
+    datefmt="%H:%M:%S",
+    level=logging.INFO,
+)
+log = logging.getLogger()
+
+
+class Configuration:
+    cmssw: str
+    steps: List[Dict[str, str]]
+    datasets: Dict[str, str]
+
+    def __init__(self, yaml_path: pathlib.Path) -> None:
+        log.debug("Reading datasets from %s", yaml_path)
+        with open(yaml_path, "r") as yaml_file:
+            data = yaml.safe_load(yaml_file)
+            self.cmssw = data["cmssw"]
+            self.steps = data["steps"]
+            self.datasets = data["datasets"]
+
+        if not (yaml_path.parent / f"{self.cmssw}/src").is_dir:
+            log.fatal("Directory %s/src does not exist.", self.cmssw)
+            raise RuntimeError()
+
+        for step in self.steps:
+            if not (yaml_path.parent / step["config"]).is_file():
+                log.fatal("File %s does not exist.", step["config"])
+                raise RuntimeError()
+
+        log.debug("CMSSW %s", self.cmssw)
+        for i, step in enumerate(self.steps):
+            log.debug("Step %d: %s %s", i, step["name"], step["config"])
+        log.debug("Number of datasets: %d", len(self.datasets))
+
+
+def get_job_nr(path: pathlib.Path) -> int:
+    try:
+        job_nr = int(open(path, "r").read()) + 1
+    except FileNotFoundError:
+        job_nr = 0
+
+    open(path, "w").write(str(job_nr))
+    return job_nr
+
+
+def get_files_from_das(dataset: str) -> List[str]:
+    """Get file names from the CMS DAS.
+
+    Arguments:
+        dataset: CMS dataset names
+
+    Returns:
+        List of file names
+    """
+    log.debug('dasgoclient -query="file dataset=%s"', dataset)
+    return subprocess.run(
+        ["dasgoclient", "-query", f"file dataset={dataset}"],
+        stdout=subprocess.PIPE,
+        check=True,
+        encoding="UTF-8",
+    ).stdout.split()
+
+
+def voms_proxy_verify():
+    try:
+        timeleft = int(
+            subprocess.run(
+                ["voms-proxy-info", "--timeleft", "--file", str(VOMS_PROXY_PATH)],
+                stdout=subprocess.PIPE,
+                check=True,
+            ).stdout
+        )
+    except Exception as e:
+        log.warning(e)
+        timeleft = 0
+
+    if timeleft < 60 * 60 * 24:
+        subprocess.run(
+            [
+                "voms-proxy-init",
+                "-voms",
+                "cms",
+                "-rfc",
+                "-valid",
+                "192:0",
+                "--out",
+                str(VOMS_PROXY_PATH),
+            ],
+            check=True,
+        )
+
+
+def write_config(
+    input_config: pathlib.Path,
+    output_config: pathlib.Path,
+    input_files: Union[List[str], str],
+    output_file: str,
+) -> None:
+    log.debug("Writing %s", output_config)
+    re_inp = re.compile("^(\s*fileNames\s*=).*,\s*$")
+    re_out = re.compile("^(\s*fileName\s*=).*,\s*$")
+    with open(input_config, "r") as inp, open(output_config, "w") as out:
+        for line in inp:
+            match = re_inp.match(line)
+            if match:
+                if isinstance(input_files, List):
+                    print(f"{match[1]} cms.untracked.vstring([", file=out)
+                    l = len(match[1])
+                    for f in input_files:
+                        print(f"{' '*l}   '{f}',", file=out)
+                    print(f"{' '*l}]),", file=out)
+                else:
+                    print(
+                        f"{match[1]} cms.untracked.vstring('{input_files}'),", file=out
+                    )
+                continue
+            match = re_out.match(line)
+            if match:
+                print(f"{match[1]} cms.untracked.string('{output_file}'),", file=out)
+                continue
+            print(line, end="", file=out)
+
+
+def submit(script: pathlib.Path):
+    output = subprocess.run(
+        ["sbatch", str(script)], stdout=subprocess.PIPE, check=True, encoding="UTF-8"
+    ).stdout
+    log.info(output)
+
+
+@click.command()
+@click.argument("datasets", metavar="DATASET", nargs=-1)
+@click.option(
+    "-c",
+    "--config",
+    "config_dir",
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
+)
+@click.option("-f", "--files-per-job", default=10)
+@click.option("-a", "--all", is_flag=True, default=False)
+@click.option("-d", "--debug", is_flag=True, default=False)
+@click.option("-x", "--dryrun", is_flag=True, default=False)
+def main(
+    datasets: List[str],
+    config_dir: str,
+    files_per_job: int,
+    all: bool,
+    debug: bool,
+    dryrun: bool,
+) -> None:
+    if debug:
+        log.setLevel(logging.DEBUG)
+
+    config = Configuration(pathlib.Path(config_dir) / "nanojob.yaml")
+
+    if all:
+        datasets = list(config["datasets"].key())
+
+    j2_env = jinja2.Environment(loader=jinja2.FileSystemLoader("templates"))
+    script_template = j2_env.get_template("run.sh")
+
+    NANOJOB_DIR.mkdir(exist_ok=True)
+
+    voms_proxy = False
+    for dataset in datasets:
+        try:
+            dataset_path = config.datasets[dataset]
+        except KeyError:
+            log.error("Dataset %s does not exist.")
+            continue
+
+        if any(map(dataset_path.endswith, DATASET_TYPES)):
+            if not voms_proxy:
+                voms_proxy_verify()
+                voms_proxy = True
+
+            files = get_files_from_das(dataset_path)
+        else:
+            files = [f"file:{p}" for p in pathlib.Path(dataset_path).glob("**/*.root")]
+
+        job_nr = get_job_nr(NANOJOB_DIR / ".job_nr")
+
+        input_dir = NANOJOB_DIR / f"{job_nr:06d}/input"
+        input_dir.mkdir(parents=True)
+        output_dir = NANOJOB_DIR / f"{job_nr:06d}/output"
+        output_dir.mkdir()
+
+        for i, j in enumerate(range(0, len(files), files_per_job)):
+            for k, step in enumerate(config.steps):
+                config_file = pathlib.Path(config_dir, step["config"])
+                if k == 0:
+                    input_files = files[j : j + files_per_job]
+                else:
+                    input_files = [f"file:{output_file}"]
+                output_file = f'{step["name"]}_{i}.root'
+                write_config(
+                    config_file,
+                    input_dir / f"{config_file.stem}_{i}{config_file.suffix}",
+                    input_files,
+                    output_file,
+                )
+
+        job_script = input_dir / "run.sh"
+        log.debug("Writing %s", job_script)
+        with open(job_script, "w") as script:
+            script.write(
+                script_template.render(
+                    voms_proxy=VOMS_PROXY_PATH if voms_proxy else None,
+                    cmssw=config.cmssw,
+                    nr_jobs=i,
+                    config_files=[step["config"] for step in config.steps],
+                    config_dir=config_dir,
+                    input_dir=input_dir,
+                    output_dir=output_dir,
+                    output_file=output_file,
+                )
+            )
+
+        if not dryrun:
+            submit(job_script)
+
+
+if __name__ == "__main__":
+    main()
