@@ -29,8 +29,8 @@ cmsDriver.py PAT \
 cmsDriver.py NANO \
     --step NANO \
     --mc \
-    --eventcontent MINIAODSIM \
-    --datatier MINIAODSIM \
+    --eventcontent NANOAODSIM \
+    --datatier NANOAODSIM \
     --conditions "102X_upgrade2018_realistic_v15" \
     --era "Run2_2018,run2_nanoAOD_102Xv1" \
     --customise_commands="process.add_(cms.Service('InitRootHandlers', EnableIMT = cms.untracked.bool(False)));process.MessageLogger.cerr.FwkReport.reportEvery=1000" \

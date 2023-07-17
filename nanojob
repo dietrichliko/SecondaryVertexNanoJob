@@ -154,7 +154,7 @@ def submit(script: pathlib.Path):
     output = subprocess.run(
         ["sbatch", str(script)], stdout=subprocess.PIPE, check=True, encoding="UTF-8"
     ).stdout
-    log.info(output)
+    log.info(output.strip())
 
 
 @click.command()
