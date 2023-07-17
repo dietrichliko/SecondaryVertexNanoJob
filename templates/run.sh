@@ -12,6 +12,7 @@ voms-proxy-info --all
 {% endif %}
 
 # setup CMSSW
+. /cvmfs/cms.cern.ch/cmsset_default.sh
 cd "{{config_dir}}/{{cmssw}}/src"
 eval $(scramv1 runtime -sh)
 
@@ -19,8 +20,7 @@ mkdir "{{output_dir}}/${SLURM_ARRAY_JOB_ID}-${SLURM_ARRAY_TASK_ID}"
 cd "{{output_dir}}/${SLURM_ARRAY_JOB_ID}-${SLURM_ARRAY_TASK_ID}"
 
 {% for name in config_files %}
-cmsRun {{input_dir}}/{{name}}
+cmsRun "{{input_dir}}/{{name}}"
+{%- endfor %}
 
-{% endfor %}
-
-mv {{output_file}} {{output_dir}}
+mv "{{output_file}}" "{{output_dir}}"

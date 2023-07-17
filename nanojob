@@ -183,7 +183,7 @@ def main(
     config = Configuration(pathlib.Path(config_dir) / "nanojob.yaml")
 
     if all:
-        datasets = list(config["datasets"].key())
+        datasets = list(config.datasets.keys())
 
     j2_env = jinja2.Environment(loader=jinja2.FileSystemLoader("templates"))
     script_template = j2_env.get_template("run.sh")
@@ -214,22 +214,31 @@ def main(
         output_dir = NANOJOB_DIR / f"{job_nr:06d}/output"
         output_dir.mkdir()
 
+        out_config_files = []
         for i, j in enumerate(range(0, len(files), files_per_job)):
             for k, step in enumerate(config.steps):
-                config_file = pathlib.Path(config_dir, step["config"])
                 if k == 0:
                     input_files = files[j : j + files_per_job]
                 else:
                     input_files = [f"file:{output_file}"]
                 output_file = f'{step["name"]}_{i}.root'
+                inp_config_file = pathlib.Path(config_dir, step["config"])
+                out_config_file = (
+                    input_dir / f"{inp_config_file.stem}_{i}{inp_config_file.suffix}"
+                )
                 write_config(
-                    config_file,
-                    input_dir / f"{config_file.stem}_{i}{config_file.suffix}",
+                    inp_config_file,
+                    out_config_file,
                     input_files,
                     output_file,
                 )
 
         job_script = input_dir / "run.sh"
+            
+        def _insert(name: str) -> str:
+            path = pathlib.Path(name)
+            return f"{path.stem}_${{SLURM_ARRAY_TASK_ID}}{path.suffix}"
+
         log.debug("Writing %s", job_script)
         with open(job_script, "w") as script:
             script.write(
@@ -237,11 +246,11 @@ def main(
                     voms_proxy=VOMS_PROXY_PATH if voms_proxy else None,
                     cmssw=config.cmssw,
                     nr_jobs=i,
-                    config_files=[step["config"] for step in config.steps],
+                    config_files=[_insert(step['config']) for step in config.steps],
                     config_dir=config_dir,
                     input_dir=input_dir,
                     output_dir=output_dir,
-                    output_file=output_file,
+                    output_file=f'{step["name"]}_${{SLURM_ARRAY_TASK_ID}}.root',
                 )
             )
 
