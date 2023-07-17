@@ -1,6 +1,6 @@
 #!/bin/bash +xe
 #SBATCH --job-name nanoaod
-#SBATCH --time 03:00:00
+#SBATCH --time 06:00:00
 #SBATCH --output {{output_dir}}/nanoaod_%A_%a.log
 #SBATCH --array 0-{{nr_jobs}}
 #SBATCH --export NONE

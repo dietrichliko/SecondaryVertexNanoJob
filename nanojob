@@ -165,7 +165,7 @@ def submit(script: pathlib.Path):
     "config_dir",
     type=click.Path(exists=True, file_okay=False, resolve_path=True),
 )
-@click.option("-f", "--files-per-job", default=10)
+@click.option("-f", "--files-per-job", default=5)
 @click.option("-a", "--all", is_flag=True, default=False)
 @click.option("-d", "--debug", is_flag=True, default=False)
 @click.option("-x", "--dryrun", is_flag=True, default=False)
